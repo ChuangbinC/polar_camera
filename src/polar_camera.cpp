@@ -25,7 +25,7 @@ public:
     inline bool isValid() const { return isValidFlag; }
 
     bool setCameraParameters(CameraPtr pCam, INodeMap &nodeMap, INodeMap &nodeMapTLDevice);
-    bool AcquireImages(CameraPtr pCam, INodeMap &nodeMap, INodeMap &nodeMapTLDevice, Mat &image);
+    bool AcquireImages(CameraPtr pCam, Mat &image);
     void startAcquisition();
     void getImage(Mat &image);
 
@@ -62,6 +62,11 @@ PolarCamera::PolarCamera()
     pCam = camList.GetByIndex(0);
 
     pCam->Init();
+
+    INodeMap &nodeMapTLDevice = pCam->GetTLDeviceNodeMap();
+    INodeMap &nodeMap = pCam->GetNodeMap();
+    setCameraParameters(pCam, nodeMap, nodeMapTLDevice);
+
 }
 
 PolarCamera::~PolarCamera()
@@ -73,6 +78,7 @@ PolarCamera::~PolarCamera()
     pCam = nullptr;
     camList.Clear();
     system->ReleaseInstance();
+    cout << "release all source!"<<endl;
 }
 
 void PolarCamera::startAcquisition()
@@ -114,19 +120,18 @@ bool PolarCamera::setCameraParameters(CameraPtr pCam, INodeMap &nodeMap, INodeMa
     }
     catch (Spinnaker::Exception &e)
     {
-        cout << "Error: " << e.what() << endl;
+        cout << "Set parameters failed. Error: " << e.what() << endl;
         return false;
     }
 }
 
 void PolarCamera::getImage(Mat &image)
 {
-    INodeMap &nodeMapTLDevice = pCam->GetTLDeviceNodeMap();
-    INodeMap &nodeMap = pCam->GetNodeMap();
-    AcquireImages(pCam, nodeMap, nodeMapTLDevice, image);
+
+    AcquireImages(pCam, image);
 }
 
-bool PolarCamera::AcquireImages(CameraPtr pCam, INodeMap &nodeMap, INodeMap &nodeMapTLDevice, Mat &image)
+bool PolarCamera::AcquireImages(CameraPtr pCam, Mat &image)
 {
     try
     {
@@ -143,8 +148,6 @@ bool PolarCamera::AcquireImages(CameraPtr pCam, INodeMap &nodeMap, INodeMap &nod
             const size_t height = pResultImage->GetHeight();
             ImagePtr convertedImage = pResultImage->Convert(PixelFormat_Mono8, HQ_LINEAR);
 
-            // uchar *result = (uchar *)convertedImage->GetData();
-
             unsigned int row_size = convertedImage->GetHeight();
 
             unsigned int col_size = convertedImage->GetWidth();
@@ -157,15 +160,21 @@ bool PolarCamera::AcquireImages(CameraPtr pCam, INodeMap &nodeMap, INodeMap &nod
 
                                         convertedImage->GetData(), convertedImage->GetStride());
             current_frame.copyTo(image);
-            cout << "Polar image fisrt data is " << result[0] << endl;
+            // cout << "Polar image fisrt data is " << result[0] << endl;
+            pResultImage->Release();
         }
-        pResultImage->Release();
+        
         return true;
     }
 
     catch (Spinnaker::Exception &e)
     {
-        cout << "Error: " << e.what() << endl;
+        if (!isAcquisition){
+            cout << "Error: Camera doesn't start acquisition. Please use \"startAcquisition\" function to start it.";
+            return false;
+        }
+            
+        cout << "Capture image failed. Error: " << e.what() << endl;
         return false;
     }
 }
@@ -178,14 +187,14 @@ int main(int argc, char **argv)
     PolarCamera polarcamera;
     if (!polarcamera.isValid())
         return -1;
-
+    polarcamera.startAcquisition();
     ros::NodeHandle nh;
     image_transport::ImageTransport it(nh);
     // 第二个是缓冲区的大小（即消息队列的长度，在发布图像消息时消息队列的长度只能是1）。
     image_transport::Publisher pub = it.advertise("polarcamera/image", 1);
 
-    //设置主题的发布频率为5Hz
-    ros::Rate loop_rate(5);
+    //设置主题的发布频率为30Hz
+    ros::Rate loop_rate(30);
     while (nh.ok())
     {
         cv::Mat image;
